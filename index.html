@@ -64,7 +64,6 @@
         try { return decodeURIComponent(escape(d)); } catch(e) { return d; }
     }
 
-    // FONCTION CRUCIALE : Lancer VLC via un lien forcé
     function launchVLC(url) {
         const vlcUrl = url.startsWith('vlc://') ? url : `vlc://${url.replace('http://', '')}`;
         const a = document.createElement('a');
@@ -154,7 +153,6 @@
                 } else { plotEl.innerText = p; }
             }
 
-            // Bouton de lecture pour Films et TV
             playBtn.onclick = () => {
                 const streamUrl = isLive ? 
                     `${srv}/live/${user}/${pass}/${item.stream_id}.ts` : 
@@ -174,4 +172,3 @@
 </script>
 </body>
 </html>
-
