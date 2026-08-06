@@ -1,1 +1,177 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <title>SFPP ELITE - Correctif VLC Direct</title>
+    <style>
+        :root { --accent: #0078ff; --bg: #05080a; }
+        body { background: var(--bg); color: white; font-family: sans-serif; margin: 0; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+        header { background: #000; padding: 15px; display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #222; flex-shrink: 0; }
+        .nav-links button { background: #111; border: 1px solid #333; color: #fff; padding: 10px 15px; border-radius: 6px; cursor: pointer; font-weight: bold; margin-right: 5px; }
+        .nav-links button.active { background: var(--accent); border-color: var(--accent); }
+        .search-input { background: #1a1a1a; border: 1px solid #444; color: white; padding: 8px 15px; border-radius: 20px; width: 200px; outline: none; }
+        .main-container { display: flex; flex: 1; overflow: hidden; }
+        #sidebar { width: 240px; background: #0a0e14; border-right: 1px solid #222; overflow-y: auto; }
+        .cat-item { padding: 12px; color: #888; cursor: pointer; border-bottom: 1px solid #111; font-size: 13px; }
+        .cat-item.active { background: #1c2531; color: var(--accent); font-weight: bold; }
+        #content { flex: 1; padding: 20px; overflow-y: auto; scroll-behavior: smooth; }
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 15px; }
+        .card { background: #10141d; border-radius: 8px; overflow: hidden; cursor: pointer; border: 1px solid #222; text-align: center; }
+        .card img { width: 100%; aspect-ratio: 2/3; object-fit: cover; background: #000; }
+        .card p { margin: 0; padding: 8px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 1000; align-items: center; justify-content: center; }
+        .modal-box { background: #0d1117; width: 500px; max-width: 90%; border-radius: 12px; padding: 25px; border: 1px solid #333; }
+        .btn-vlc { background: var(--accent); color: white; border: none; padding: 15px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 16px; margin-top: 10px; }
+        .btn-tmdb { background: #01d277; color: #000; border: none; padding: 12px; width: 100%; border-radius: 8px; font-weight: bold; cursor: pointer; text-decoration: none; display: block; text-align: center; margin-bottom: 10px; font-size: 13px; }
+        #series-list { max-height: 200px; overflow-y: auto; margin-top: 15px; border-top: 1px solid #333; padding-top: 10px; }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="nav-links">
+        <button id="b-live" onclick="tab('get_live_categories','get_live_streams',this)">TV</button>
+        <button id="b-vod" onclick="tab('get_vod_categories','get_vod_streams',this)">FILMS</button>
+        <button id="b-ser" onclick="tab('get_series_categories','get_series',this)">SÉRIES</button>
+    </div>
+    <input type="text" id="search" class="search-input" placeholder="Rechercher..." oninput="doSearch()">
+</header>
+
+<div class="main-container">
+    <div id="sidebar"></div>
+    <div id="content"><div id="grid" class="grid"></div></div>
+</div>
+
+<div id="modal" class="modal">
+    <div class="modal-box">
+        <h3 id="m-title" style="margin-top:0; color:var(--accent);"></h3>
+        <p id="m-plot" style="font-size:14px; color:#bbb; line-height:1.5; margin-bottom:15px;"></p>
+        <a id="m-tmdb" class="btn-tmdb" target="_blank" style="display:none;">🎬 INFOS SUR TMDB</a>
+        <div id="series-list" style="display:none;"></div>
+        <button id="vlc-btn" class="btn-vlc">LANCER SUR VLC</button>
+        <button onclick="closeModal()" style="background:none; border:none; color:grey; margin-top:15px; width:100%; cursor:pointer; font-size: 12px;">Annuler / Retour</button>
+    </div>
+</div>
+
+<script>
+    let srv = localStorage.getItem('sfpp_srv'), user = localStorage.getItem('sfpp_user'), pass = localStorage.getItem('sfpp_pass');
+    let currentData = [], mode = "";
+
+    function fix(s) {
+        if(!s) return "";
+        let d = s.trim();
+        if(d.length > 8 && !d.includes(' ') && /^[A-Za-z0-9+/=]+$/.test(d)) { try { d = atob(d); } catch(e){} }
+        try { return decodeURIComponent(escape(d)); } catch(e) { return d; }
+    }
+
+    // FONCTION CRUCIALE : Lancer VLC via un lien forcé
+    function launchVLC(url) {
+        const vlcUrl = url.startsWith('vlc://') ? url : `vlc://${url.replace('http://', '')}`;
+        const a = document.createElement('a');
+        a.href = vlcUrl;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    async function tab(catA, strA, btn) {
+        document.querySelectorAll('.nav-links button').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active'); mode = strA;
+        const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${catA}`);
+        const cats = await r.json();
+        const side = document.getElementById('sidebar');
+        side.innerHTML = `<div class="cat-item active" onclick="load('0', this)">-- TOUT --</div>`;
+        cats.forEach(c => {
+            const d = document.createElement('div'); d.className = "cat-item";
+            d.innerText = fix(c.category_name); d.onclick = () => load(c.category_id, d);
+            side.appendChild(d);
+        });
+        load('0', side.firstChild);
+    }
+
+    async function load(id, btn) {
+        document.querySelectorAll('.cat-item').forEach(i => i.classList.remove('active'));
+        btn.classList.add('active');
+        const url = `${srv}/player_api.php?username=${user}&password=${pass}&action=${mode}${id!=='0'?'&category_id='+id:''}`;
+        const r = await fetch(url); currentData = await r.json();
+        render(currentData);
+    }
+
+    function render(data) {
+        const grid = document.getElementById('grid'); grid.innerHTML = "";
+        const frag = document.createDocumentFragment();
+        data.forEach(item => {
+            const d = document.createElement('div'); d.className = 'card';
+            d.innerHTML = `<img src="${item.stream_icon || item.cover || ''}" loading="lazy" onerror="this.src='https://via.placeholder.com/150x220?text=IMAGE'"><p>${fix(item.name)}</p>`;
+            d.onclick = () => openModal(item);
+            frag.appendChild(d);
+        });
+        grid.appendChild(frag);
+    }
+
+    async function openModal(item) {
+        const title = fix(item.name);
+        document.getElementById('m-title').innerText = title;
+        const plotEl = document.getElementById('m-plot');
+        const tmdbBtn = document.getElementById('m-tmdb');
+        const seriesList = document.getElementById('series-list');
+        const playBtn = document.getElementById('vlc-btn');
+        
+        plotEl.innerText = "Chargement...";
+        tmdbBtn.style.display = "none";
+        seriesList.style.display = "none";
+        playBtn.style.display = "block";
+        document.getElementById('modal').style.display = 'flex';
+
+        const isLive = mode === 'get_live_streams';
+        const action = isLive ? 'get_short_epg&stream_id=' : (mode==='get_series'?'get_series_info&series_id=':'get_vod_info&stream_id=');
+
+        try {
+            const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${action}${item.stream_id || item.series_id}`);
+            const d = await r.json();
+            
+            if(isLive) {
+                plotEl.innerText = d.epg_listings?.[0] ? fix(d.epg_listings[0].title) : "Pas d'EPG disponible.";
+            } else if(mode === 'get_series') {
+                plotEl.innerText = fix(d.info?.plot || "Résumé série non disponible.");
+                playBtn.style.display = "none";
+                seriesList.style.display = "block"; seriesList.innerHTML = "";
+                Object.keys(d.episodes).forEach(s => {
+                    d.episodes[s].forEach(e => {
+                        const div = document.createElement('div');
+                        div.style = "padding:10px; background:#222; margin-bottom:5px; cursor:pointer; font-size:12px; border-radius:4px; border: 1px solid #333;";
+                        div.innerText = `S${s}E${e.episode_num} - ${fix(e.title)}`;
+                        div.onclick = () => launchVLC(`${srv}/series/${user}/${pass}/${e.id}.${e.container_extension}`);
+                        seriesList.appendChild(div);
+                    });
+                });
+            } else {
+                const p = fix(d.info?.plot || d.movie_data?.info?.plot || "");
+                if(p.length < 5) {
+                    plotEl.innerText = "Résumé non disponible.";
+                    tmdbBtn.style.display = "block";
+                    tmdbBtn.href = `https://www.themoviedb.org/search?query=${encodeURIComponent(title.replace(/\|.*?\|/g,''))}`;
+                } else { plotEl.innerText = p; }
+            }
+
+            // Bouton de lecture pour Films et TV
+            playBtn.onclick = () => {
+                const streamUrl = isLive ? 
+                    `${srv}/live/${user}/${pass}/${item.stream_id}.ts` : 
+                    `${srv}/movie/${user}/${pass}/${item.stream_id}.${item.container_extension}`;
+                launchVLC(streamUrl);
+            };
+
+        } catch(e) { plotEl.innerText = "Erreur de chargement."; }
+    }
+
+    function doSearch() {
+        const q = document.getElementById('search').value.toLowerCase();
+        render(currentData.filter(i => fix(i.name).toLowerCase().includes(q)));
+    }
+    function closeModal() { document.getElementById('modal').style.display='none'; }
+    window.onload = () => { if(srv) tab('get_live_categories', 'get_live_streams', document.getElementById('b-live')); };
+</script>
+</body>
+</html>
 
