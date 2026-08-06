@@ -2,6 +2,7 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>SFPP ELITE - Correctif VLC Direct</title>
     <style>
         :root { --accent: #0078ff; --bg: #05080a; }
@@ -76,24 +77,29 @@
     async function tab(catA, strA, btn) {
         document.querySelectorAll('.nav-links button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); mode = strA;
-        const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${catA}`);
-        const cats = await r.json();
-        const side = document.getElementById('sidebar');
-        side.innerHTML = `<div class="cat-item active" onclick="load('0', this)">-- TOUT --</div>`;
-        cats.forEach(c => {
-            const d = document.createElement('div'); d.className = "cat-item";
-            d.innerText = fix(c.category_name); d.onclick = () => load(c.category_id, d);
-            side.appendChild(d);
-        });
-        load('0', side.firstChild);
+        if(!srv) return;
+        try {
+            const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${catA}`);
+            const cats = await r.json();
+            const side = document.getElementById('sidebar');
+            side.innerHTML = `<div class="cat-item active" onclick="load('0', this)">-- TOUT --</div>`;
+            cats.forEach(c => {
+                const d = document.createElement('div'); d.className = "cat-item";
+                d.innerText = fix(c.category_name); d.onclick = () => load(c.category_id, d);
+                side.appendChild(d);
+            });
+            load('0', side.firstChild);
+        } catch(e) { console.error("Erreur de chargement des catégories", e); }
     }
 
     async function load(id, btn) {
         document.querySelectorAll('.cat-item').forEach(i => i.classList.remove('active'));
         btn.classList.add('active');
         const url = `${srv}/player_api.php?username=${user}&password=${pass}&action=${mode}${id!=='0'?'&category_id='+id:''}`;
-        const r = await fetch(url); currentData = await r.json();
-        render(currentData);
+        try {
+            const r = await fetch(url); currentData = await r.json();
+            render(currentData);
+        } catch(e) { console.error("Erreur de chargement des flux", e); }
     }
 
     function render(data) {
@@ -135,15 +141,17 @@
                 plotEl.innerText = fix(d.info?.plot || "Résumé série non disponible.");
                 playBtn.style.display = "none";
                 seriesList.style.display = "block"; seriesList.innerHTML = "";
-                Object.keys(d.episodes).forEach(s => {
-                    d.episodes[s].forEach(e => {
-                        const div = document.createElement('div');
-                        div.style = "padding:10px; background:#222; margin-bottom:5px; cursor:pointer; font-size:12px; border-radius:4px; border: 1px solid #333;";
-                        div.innerText = `S${s}E${e.episode_num} - ${fix(e.title)}`;
-                        div.onclick = () => launchVLC(`${srv}/series/${user}/${pass}/${e.id}.${e.container_extension}`);
-                        seriesList.appendChild(div);
+                if(d.episodes) {
+                    Object.keys(d.episodes).forEach(s => {
+                        d.episodes[s].forEach(e => {
+                            const div = document.createElement('div');
+                            div.style = "padding:10px; background:#222; margin-bottom:5px; cursor:pointer; font-size:12px; border-radius:4px; border: 1px solid #333;";
+                            div.innerText = `S${s}E${e.episode_num} - ${fix(e.title)}`;
+                            div.onclick = () => launchVLC(`${srv}/series/${user}/${pass}/${e.id}.${e.container_extension}`);
+                            seriesList.appendChild(div);
+                        });
                     });
-                });
+                }
             } else {
                 const p = fix(d.info?.plot || d.movie_data?.info?.plot || "");
                 if(p.length < 5) {
