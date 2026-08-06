@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -36,7 +35,10 @@
 <div id="login-screen">
     <div class="login-box">
         <h2 style="color:var(--accent); margin-top:0;">SFPP ELITE</h2>
-        <select id="srv"><option value="http://my-sfpp.net">Standard</option><option value="http://sfppprime.net">Premium</option></select>
+        <select id="srv">
+            <option value="http://my-sfpp.net">Standard</option>
+            <option value="http://sfppprime.net">Premium</option>
+        </select>
         <input type="text" id="u" placeholder="Utilisateur">
         <input type="password" id="p" placeholder="Mot de passe">
         <button onclick="connect()" style="width:100%; padding:10px; background:var(--accent); border:none; color:white; border-radius:4px; cursor:pointer; font-weight:bold;">CONNEXION</button>
@@ -91,10 +93,16 @@
 <script>
     let srv, user, pass, currentList = [], currentMode = "";
 
+    // ASTUCE DE CONTOURNEMENT HTTPS (PROXY)
+    async function safeFetch(targetUrl) {
+        // On passe par un proxy qui gère le HTTPS pour nous
+        const proxyUrl = "https://api.allorigins.win/raw?url=" + encodeURIComponent(targetUrl);
+        return fetch(proxyUrl);
+    }
+
     function fixText(str) {
         if (!str || typeof str !== 'string') return str;
         let d = str.trim();
-        // Décodage Base64 si la chaîne finit par = ou n'a pas d'espace et est longue
         if ((d.endsWith('=') || (d.length > 20 && !d.includes(' '))) && /^[A-Za-z0-9+/=]+$/.test(d)) {
             try { d = atob(d); } catch (e) {}
         }
@@ -117,7 +125,8 @@
         user = document.getElementById('u').value.trim();
         pass = document.getElementById('p').value.trim();
         try {
-            const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}`);
+            // Utilisation du proxy pour la connexion
+            const r = await safeFetch(`${srv}/player_api.php?username=${user}&password=${pass}`);
             const d = await r.json();
             if(d.user_info && d.user_info.auth) {
                 localStorage.setItem('sfpp_srv', srv); localStorage.setItem('sfpp_user', user); localStorage.setItem('sfpp_pass', pass);
@@ -125,6 +134,8 @@
                 document.getElementById('header').style.display='flex';
                 document.getElementById('sidebar').style.display='block';
                 switchTab('get_live_categories', 'get_live_streams', document.getElementById('btn-live'));
+            } else {
+                alert("Identifiants incorrects");
             }
         } catch(e) { alert("Erreur connexion"); }
     }
@@ -133,7 +144,7 @@
         document.querySelectorAll('.nav-links button').forEach(b => b.classList.remove('active'));
         btn.classList.add('active'); currentMode = streamA;
         try {
-            const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${catA}`);
+            const r = await safeFetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${catA}`);
             const cats = await r.json();
             const side = document.getElementById('sidebar');
             side.innerHTML = `<div class="cat-item active" onclick="loadData('0', this)">TOUT VOIR</div>`;
@@ -152,7 +163,7 @@
         let url = `${srv}/player_api.php?username=${user}&password=${pass}&action=${currentMode}`;
         if(id !== '0') url += `&category_id=${id}`;
         try {
-            const r = await fetch(url);
+            const r = await safeFetch(url);
             currentList = await r.json();
             renderGrid(currentList);
         } catch(e) { grid.innerHTML = "Erreur."; }
@@ -181,7 +192,7 @@
 
         if(isLive) {
             try {
-                const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=get_short_epg&stream_id=${item.stream_id}`);
+                const r = await safeFetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=get_short_epg&stream_id=${item.stream_id}`);
                 const d = await r.json();
                 if(d.epg_listings && d.epg_listings.length > 0) {
                     document.getElementById('m-epg-title').innerText = fixText(d.epg_listings[0].title);
@@ -190,12 +201,10 @@
         } else {
             const action = (currentMode === 'get_series') ? 'get_series_info&series_id=' : 'get_vod_info&stream_id=';
             try {
-                const r = await fetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${action}${item.series_id || item.stream_id}`);
+                const r = await safeFetch(`${srv}/player_api.php?username=${user}&password=${pass}&action=${action}${item.series_id || item.stream_id}`);
                 const d = await r.json();
                 
-                // --- RECHERCHE PROFONDE DU RÉSUMÉ ---
                 let p = "";
-                // On cherche dans tous les endroits possibles de la réponse API
                 if (d.info) {
                     p = d.info.plot || d.info.description || d.info.notes || d.info.biography || d.info.text || "";
                 }
@@ -223,6 +232,7 @@
         }
 
         document.getElementById('vlc-start').onclick = () => {
+            // Ici, on garde l'URL normale (non sécurisée) car VLC l'accepte sans problème !
             const url = isLive ? `${srv}/live/${user}/${pass}/${item.stream_id}.ts` : `${srv}/movie/${user}/${pass}/${item.stream_id}.${item.container_extension}`;
             playVLC(url);
         };
@@ -241,4 +251,3 @@
 </script>
 </body>
 </html>
-
